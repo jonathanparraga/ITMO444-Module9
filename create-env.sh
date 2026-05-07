@@ -125,7 +125,8 @@ fi
 echo "Creating S3 bucket: ${19}..."
 aws s3api create-bucket \
     --bucket ${19} \
-    --region ${17}
+    --region ${17} \
+    --create-bucket-configuration LocationConstraint=${17}
 echo "Created S3 bucket: ${19}..."
 
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3api/wait/bucket-exists.html
@@ -137,7 +138,8 @@ echo "Bucket ${19} is in a ready state..."
 echo "Creating S3 bucket: ${20}..."
 aws s3api create-bucket \
     --bucket ${20} \
-    --region ${17}
+    --region ${17} \
+    --create-bucket-configuration LocationConstraint=${17}
 echo "Created S3 bucket: ${20}..."
 
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3api/wait/bucket-exists.html
@@ -196,7 +198,7 @@ SECRET_ID=$(aws secretsmanager list-secrets --filters Key=name,Values=${21} --qu
 echo "******************************************************************************"
 echo "Creating ${22} RDS instances..."
 echo "******************************************************************************"
-aws rds create-db-instance --db-instance-identifier ${22} --db-instance-class db.t3.micro --engine mysql --master-username $USERVALUE --master-user-password $PASSVALUE --allocated-storage 20 --db-name employee_database --tags="Key=assessment,Value=${7}"
+aws rds create-db-instance --db-instance-identifier ${22} --db-instance-class db.t3.micro --engine mysql --master-username $USERVALUE --master-user-password $PASSVALUE --allocated-storage 20 --storage-type gp3 --backup-retention-period 1 --db-name employee_database --tags="Key=assessment,Value=${7}"
 
 # Add wait command for db-instance available
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/rds/wait/db-instance-available.html
@@ -228,10 +230,10 @@ echo "**************************************************************************
 echo "******************************************************************************"
 echo "Retrieving the RDS Endpoint Address and printing to the screen..."
 echo "******************************************************************************"
-RDS_Address=$(aws rds describe-db-instances --db-instance-identifier ${22} --query "DBInstances[0].Endpoint.Address --output text")
+RDS_Address=$(aws rds describe-db-instances --db-instance-identifier ${22} --query "DBInstances[0].Endpoint.Address" --output text)
 echo $RDS_Address
 echo "Retrieving the RDS Read Replica Endpoint Address and printing to the screen..."
-RDS_RR_Address=$(aws rds describe-db-instances --db-instance-identifier ${22}-read-replica --query "DBInstances[0].Endpoint.Address --output text")
+RDS_RR_Address=$(aws rds describe-db-instances --db-instance-identifier ${22}-read-replica --query "DBInstances[0].Endpoint.Address" --output text)
 echo $RDS_RR_Address
 
 # end of outer fi - based on arguments.txt content
