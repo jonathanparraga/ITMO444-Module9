@@ -6,7 +6,7 @@ if [ -a $ltconfigfile ]
 then
   echo "You have already created the launch-tempalte-data file ./config.json..."
   exit 1
-elif [ $# = 0 ]
+elif [ $# -lt 22 ]
   then
   echo "You don't have enough variables in your arugments.txt, perhaps you forgot to run: bash ./create-lt-json.sh \$(< ~/arguments.txt)"
   exit 1
@@ -14,8 +14,8 @@ else
 echo 'Creating lauch template data file ./config.json...'
 
 echo "Finding and storing the subnet IDs for defined in arguments.txt Availability Zone 1 and 2..."
-SUBNET2A=$(aws ec2 describe-subnets --output=text --query='Subnets[*].SubnetId' --filter "Name=availability-zone,Values=${10}")
-SUBNET2B=$(aws ec2 describe-subnets --output=text --query='Subnets[*].SubnetId' --filter "Name=availability-zone,Values=${11}")
+SUBNET2A=$(aws ec2 describe-subnets --output text --query 'Subnets[0].SubnetId' --filters "Name=availability-zone,Values=${10}" "Name=default-for-az,Values=true")
+SUBNET2B=$(aws ec2 describe-subnets --output text --query 'Subnets[0].SubnetId' --filters "Name=availability-zone,Values=${11}" "Name=default-for-az,Values=true")
 echo $SUBNET2A
 echo $SUBNET2B
 
@@ -50,14 +50,43 @@ JSON="{
             \"DeleteOnTermination\": true
         }
     ],
-    \"BlockDeviceMappings\":[{\"DeviceName\":\"/dev/sdc\",\"Ebs\":{\"VolumeSize\": ${18}}},{\"DeviceName\":\"/dev/sdd\",\"Ebs\":{\"VolumeSize\": ${18}}}],
+    \"BlockDeviceMappings\": [
+        {
+            \"DeviceName\": \"/dev/sdc\",
+            \"Ebs\": {
+                \"VolumeSize\": ${18},
+                \"VolumeType\": \"gp3\",
+                \"DeleteOnTermination\": true
+            }
+        }
+    ],
     \"ImageId\": \"${1}\",
     \"InstanceType\": \"${2}\",
     \"KeyName\": \"${3}\",
     \"UserData\": \"$BASECONVERT\",
     \"Placement\": {
         \"AvailabilityZone\": \"${10}\"
-    }
+    },
+    \"TagSpecifications\": [
+        {
+            \"ResourceType\": \"instance\",
+            \"Tags\": [
+                {
+                    \"Key\": \"module\",
+                    \"Value\": \"${7}\"
+                }
+            ]
+        },
+        {
+            \"ResourceType\": \"volume\",
+            \"Tags\": [
+                {
+                    \"Key\": \"module\",
+                    \"Value\": \"${7}\"
+                }
+            ]
+        }
+    ]
 }"
 
 #,\"TagSpecifications\":[{\"ResourceType\":\"instance\",\"Tags\":[{\"Key\":\"module\",\"Value\": \"${7}\" }]}]

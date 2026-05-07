@@ -31,7 +31,7 @@
 
 ltconfigfile="./config.json"
 
-if [ $# = 0 ]
+if [ $# -lt 22 ]
 then
   echo "You don't have enough variables in your arugments.txt, perhaps you forgot to run: bash ./create-env.sh \$(< ~/arguments.txt)"
   exit 1 
@@ -58,26 +58,29 @@ echo $SUBNET2A
 echo $SUBNET2B
 
 echo "Creating the AutoScalingGroup Launch Template..."
-aws ec2 create-launch-template --launch-template-name  --version-description AutoScalingVersion1 --launch-template-data file://config.json --region
+aws ec2 create-launch-template --launch-template-name ${12} --launch-template-data file://config.json --region  ${17}
 echo "Launch Template created..."
 
 # Launch Template Id
-LAUNCHTEMPLATEID=
+LAUNCHTEMPLATEID=$(aws ec2 describe-launch-templates --launch-template-names ${12} --region ${17} --query 'LaunchTemplates[0].LaunchTemplateId' --output text)
+echo $LAUNCHTEMPLATEID
 
 echo "Creating the TARGET GROUP and storing the ARN in \$TARGETARN"
 # https://awscli.amazonaws.com/v2/documentation/api/2.0.34/reference/elbv2/create-target-group.html
-TARGETARN=$(aws elbv2 create-target-group --name  --protocol  --port  --target-type instance --vpc-id $VPCID --query="")
+TARGETARN=$(aws elbv2 create-target-group --name ${8} --protocol HTTP --port 80 --vpc-id $VPCID --target-type instance --query 'TargetGroups[0].TargetGroupArn' --output text)
 echo $TARGETARN
 
 echo "Creating ELBv2 Elastic Load Balancer..."
 #https://awscli.amazonaws.com/v2/documentation/api/2.0.34/reference/elbv2/create-load-balancer.html
-ELBARN=$(aws elbv2 create-load-balancer --name  --security-groups  --subnets  --query='')
+ELBARN=$(aws elbv2 create-load-balancer --name ${9} --subnets $SUBNET2A $SUBNET2B --security-groups ${4} --scheme internet-facing --type application --query 'LoadBalancers[0].LoadBalancerArn' --output text)
 echo $ELBARN
 
+aws elbv2 modify-target-group-attributes --target-group-arn $TARGETARN --attributes Key=deregistration_delay.timeout_seconds,Value=30
 # AWS elbv2 wait for load-balancer available
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/elbv2/wait/load-balancer-available.html
 echo "Waiting for load balancer to be available..."
-aws elbv2 wait load-balancer-available --load-balancer-arns
+aws elbv2 wait load-balancer-available --load-balancer-arns $ELBARN
+
 echo "Load balancer available..."
 # create AWS elbv2 listener for HTTP on port 80
 #https://awscli.amazonaws.com/v2/documentation/api/latest/reference/elbv2/create-listener.html
@@ -88,21 +91,21 @@ echo 'Creating Auto Scaling Group...'
 # Create autoscaling group
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/autoscaling/create-auto-scaling-group.html
 aws autoscaling create-auto-scaling-group \
-    --auto-scaling-group-name  \
+    --auto-scaling-group-name ${13} \
     --launch-template LaunchTemplateId=$LAUNCHTEMPLATEID \
-    --target-group-arns  \
+    --target-group-arns $TARGETARN  \
     --health-check-grace-period 600 \
-    --min-size  \
-    --max-size  \
-    --desired-capacity  \
-    --availability-zones  \
+    --min-size ${14} \
+    --max-size  ${15} \
+    --desired-capacity ${16} \
+    --availability-zones ${10} ${11} \
     --health-check-type EC2 \
     --tags "ResourceId=${13},ResourceType=auto-scaling-group,Key=assessment,Value=${7},PropagateAtLaunch=true" 
 
 echo 'Waiting for Auto Scaling Group to spin up EC2 instances and attach them to the TargetARN...'
 # Create waiter for registering targets
 # https://docs.aws.amazon.com/cli/latest/reference/elbv2/wait/target-in-service.html
-aws elbv2 wait target-in-service --target-group-arn 
+aws elbv2 wait target-in-service --target-group-arn $TARGETARN 
 echo "Targets attached to Auto Scaling Group..."
 
 # Collect Instance IDs
@@ -111,7 +114,7 @@ INSTANCEIDS=$(aws ec2 describe-instances --output=text --query 'Reservations[*].
 
 if [ "$INSTANCEIDS" != "" ]
   then
-    aws ec2 wait instance-running --instance-ids 
+    aws ec2 wait instance-running --instance-ids $INSTANCEIDS
     echo "Finished launching instances..."
   else
     echo 'There are no running or pending values in $INSTANCEIDS to wait for...'
@@ -121,24 +124,26 @@ fi
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3api/index.html
 echo "Creating S3 bucket: ${19}..."
 aws s3api create-bucket \
-    --bucket \
-    --region us-east-1
+    --bucket ${19} \
+    --region ${17}
 echo "Created S3 bucket: ${19}..."
 
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3api/wait/bucket-exists.html
 echo "Waiting for bucket ${19} to be in a ready state..."
 # add a s3api wait for bucket here!!!!!!!!!!!!!!!!!!!
+aws s3api wait bucket-exists --bucket ${19}
 echo "Bucket ${19} is in a ready state..."
 
 echo "Creating S3 bucket: ${20}..."
 aws s3api create-bucket \
-    --bucket \
-    --region us-east-1
+    --bucket ${20} \
+    --region ${17}
 echo "Created S3 bucket: ${20}..."
 
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/s3api/wait/bucket-exists.html
 echo "Waiting for bucket ${20} to be in a ready state..."
 # add a s3api wait for bucket here!!!!!!!!!!!!!!!!!!!
+aws s3api wait bucket-exists --bucket ${20}
 echo "Bucket ${20} is in a ready state..."
 
 # S3 commands
@@ -169,20 +174,29 @@ aws s3 ls s3://${20}
 
 # Retreive ELBv2 URL via aws elbv2 describe-load-balancers --query and print it to the screen
 #https://awscli.amazonaws.com/v2/documentation/api/latest/reference/elbv2/describe-load-balancers.html
-URL=$(aws elbv2 describe-load-balancers --load-balancer-arns  --query='')
+URL=$(aws elbv2 describe-load-balancers --load-balancer-arns $ELBARN --query 'LoadBalancers[0].DNSName' --output text)
 echo $URL
+
+echo "Creating AWS secret: ${21}..."
+
+aws secretsmanager create-secret \
+  --name ${21} \
+  --secret-string file://maria.json
 
 SECRET_ID=$(aws secretsmanager list-secrets --filters Key=name,Values=${21} --query 'SecretList[*].ARN')
 
-USERVALUE=$(aws secretsmanager get-secret-value --secret-id $SECRET_ID --output=json | jq '.SecretString' | sed 's/[\\n]//g' | sed 's/^"//g' | sed 's/"$//g' | jq '.user' | sed 's/"//g')
-PASSVALUE=$(aws secretsmanager get-secret-value --secret-id $SECRET_ID --output=json | jq '.SecretString' | sed 's/[\\n]//g' | sed 's/^"//g' | sed 's/"$//g' | jq '.pass' | sed 's/"//g')
+    USERVALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query 'SecretString' --output text | jq -r '.username')
+    PASSVALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --query 'SecretString' --output text | jq -r '.password')
+	
+	echo $USERVALUE
+    echo $PASSVALUE
 
 # Create RDS instances
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/rds/index.html
 echo "******************************************************************************"
 echo "Creating ${22} RDS instances..."
 echo "******************************************************************************"
-aws rds create-db-instance --db-instance-identifier --db-instance-class db.t3.micro --engine --master-username $USERVALUE --master-user-password $PASSVALUE --allocated-storage --db-name employee_database --tags="Key=assessment,Value=${7}"
+aws rds create-db-instance --db-instance-identifier ${22} --db-instance-class db.t3.micro --engine mysql --master-username $USERVALUE --master-user-password $PASSVALUE --allocated-storage 20 --db-name employee_database --tags="Key=assessment,Value=${7}"
 
 # Add wait command for db-instance available
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/rds/wait/db-instance-available.html
@@ -190,7 +204,7 @@ echo "**************************************************************************
 echo "Waiting for RDS instance: ${22} to be created..."
 echo "This might take around 5-15 minutes..."
 echo "******************************************************************************"
-aws rds wait db-instance-available --db-instance-identifier 
+aws rds wait db-instance-available --db-instance-identifier ${22}
 echo "******************************************************************************"
 echo "RDS instance: ${22} created and in available state..."
 echo "******************************************************************************"
@@ -198,7 +212,7 @@ echo "**************************************************************************
 echo "******************************************************************************"
 echo "Creating RDS instance: ${22}-read-replica..."
 echo "******************************************************************************"
-aws rds create-db-instance-read-replica --db-instance-identifier --source-db-instance-identifier --tags="Key=assessment,Value=${7}"
+aws rds create-db-instance-read-replica --db-instance-identifier ${22}-read-replica --source-db-instance-identifier ${22} --tags="Key=assessment,Value=${7}"
 
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/rds/wait/db-instance-available.html
 echo "******************************************************************************"
@@ -207,16 +221,17 @@ echo "This might take another 5-15 minutes..."
 echo "Perhaps check out https://xkcd.com/303/ ..."
 echo "******************************************************************************"
 ### !!! CREATE AN AWS RDS WAIT command to wait for the Read-Replica to be in service
+ aws rds wait db-instance-available --db-instance-identifier ${22}-read-replica
 
 # Fetching RDS address
 # https://awscli.amazonaws.com/v2/documentation/api/latest/reference/rds/describe-db-instances.html
 echo "******************************************************************************"
 echo "Retrieving the RDS Endpoint Address and printing to the screen..."
 echo "******************************************************************************"
-RDS_Address=$(aws rds describe-db-instances --db-instance-identifier ${22} --query "DBInstances[0].Endpoint.Address")
+RDS_Address=$(aws rds describe-db-instances --db-instance-identifier ${22} --query "DBInstances[0].Endpoint.Address --output text")
 echo $RDS_Address
 echo "Retrieving the RDS Read Replica Endpoint Address and printing to the screen..."
-RDS_RR_Address=$(aws rds describe-db-instances --db-instance-identifier ${22}-read-replica --query "DBInstances[0].Endpoint.Address")
+RDS_RR_Address=$(aws rds describe-db-instances --db-instance-identifier ${22}-read-replica --query "DBInstances[0].Endpoint.Address --output text")
 echo $RDS_RR_Address
 
 # end of outer fi - based on arguments.txt content
